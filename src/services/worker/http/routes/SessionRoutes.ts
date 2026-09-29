@@ -9,7 +9,7 @@ import { SessionManager } from '../../SessionManager.js';
 import { DatabaseManager } from '../../DatabaseManager.js';
 import { ClaudeProvider } from '../../ClaudeProvider.js';
 import { GeminiProvider, isGeminiSelected, isGeminiAvailable } from '../../GeminiProvider.js';
-import { OpenRouterProvider, isOpenRouterSelected, isOpenRouterAvailable } from '../../OpenRouterProvider.js';
+import { OpenRouterProvider, isOpenRouterSelected, isOpenRouterAvailable, isDeepSeekSelected, isDeepSeekAvailable } from '../../OpenRouterProvider.js';
 import type { WorkerService } from '../../../worker-service.js';
 import { BaseRouteHandler } from '../BaseRouteHandler.js';
 import { SessionEventBroadcaster } from '../../events/SessionEventBroadcaster.js';
@@ -31,6 +31,7 @@ export class SessionRoutes extends BaseRouteHandler {
     private sdkAgent: ClaudeProvider,
     private geminiAgent: GeminiProvider,
     private openRouterAgent: OpenRouterProvider,
+    private deepSeekAgent: OpenRouterProvider,
     private eventBroadcaster: SessionEventBroadcaster,
     private workerService: WorkerService,
     private completionHandler: SessionCompletionHandler,
@@ -39,6 +40,14 @@ export class SessionRoutes extends BaseRouteHandler {
   }
 
   private getActiveAgent(): ClaudeProvider | GeminiProvider | OpenRouterProvider {
+    if (isDeepSeekSelected()) {
+      if (isDeepSeekAvailable()) {
+        logger.debug('SESSION', 'Using DeepSeek agent');
+        return this.deepSeekAgent;
+      } else {
+        throw new Error('DeepSeek provider selected but no API key configured. Set CLAUDE_MEM_DEEPSEEK_API_KEY in settings or DEEPSEEK_API_KEY environment variable.');
+      }
+    }
     if (isOpenRouterSelected()) {
       if (isOpenRouterAvailable()) {
         logger.debug('SESSION', 'Using OpenRouter agent');
@@ -58,7 +67,10 @@ export class SessionRoutes extends BaseRouteHandler {
     return this.sdkAgent;
   }
 
-  private getSelectedProvider(): 'claude' | 'gemini' | 'openrouter' {
+  private getSelectedProvider(): 'claude' | 'gemini' | 'openrouter' | 'deepseek' {
+    if (isDeepSeekSelected() && isDeepSeekAvailable()) {
+      return 'deepseek';
+    }
     if (isOpenRouterSelected() && isOpenRouterAvailable()) {
       return 'openrouter';
     }
@@ -91,7 +103,7 @@ export class SessionRoutes extends BaseRouteHandler {
 
   private async startGeneratorWithProvider(
     session: ReturnType<typeof this.sessionManager.getSession>,
-    provider: 'claude' | 'gemini' | 'openrouter',
+    provider: 'claude' | 'gemini' | 'openrouter' | 'deepseek',
     source: string
   ): Promise<void> {
     if (!session) return;
@@ -103,8 +115,15 @@ export class SessionRoutes extends BaseRouteHandler {
       session.abortController = new AbortController();
     }
 
-    const agent = provider === 'openrouter' ? this.openRouterAgent : (provider === 'gemini' ? this.geminiAgent : this.sdkAgent);
-    const agentName = provider === 'openrouter' ? 'OpenRouter' : (provider === 'gemini' ? 'Gemini' : 'Claude SDK');
+    const agents = {
+      deepseek: this.deepSeekAgent,
+      openrouter: this.openRouterAgent,
+      gemini: this.geminiAgent,
+      claude: this.sdkAgent,
+    };
+    const agentNames = { deepseek: 'DeepSeek', openrouter: 'OpenRouter', gemini: 'Gemini', claude: 'Claude SDK' };
+    const agent = agents[provider];
+    const agentName = agentNames[provider];
 
     const actualQueueDepth = this.sessionManager.getMessageBuffer().getPendingCount(session.sessionDbId);
 

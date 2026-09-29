@@ -331,7 +331,7 @@ export function ContextSettingsModal({
             >
               <FormField
                 label="AI Provider"
-                tooltip="Choose between Claude (via Agent SDK) or Gemini (via REST API)"
+                tooltip="Choose between Claude (via Agent SDK), Gemini, OpenRouter, or DeepSeek (via REST API)"
               >
                 <select
                   value={formState.CLAUDE_MEM_PROVIDER || 'claude'}
@@ -340,6 +340,7 @@ export function ContextSettingsModal({
                   <option value="claude">Claude (uses your Claude account)</option>
                   <option value="gemini">Gemini (uses API key)</option>
                   <option value="openrouter">OpenRouter (multi-model)</option>
+                  <option value="deepseek">DeepSeek (uses API key)</option>
                 </select>
               </FormField>
 
@@ -441,6 +442,44 @@ export function ContextSettingsModal({
                       value={formState.CLAUDE_MEM_OPENROUTER_APP_NAME || 'claude-mem'}
                       onChange={(e) => updateSetting('CLAUDE_MEM_OPENROUTER_APP_NAME', e.target.value)}
                       placeholder="claude-mem"
+                    />
+                  </FormField>
+                </>
+              )}
+
+              {formState.CLAUDE_MEM_PROVIDER === 'deepseek' && (
+                <>
+                  <FormField
+                    label="DeepSeek API Key"
+                    tooltip="Your DeepSeek API key from platform.deepseek.com (or set DEEPSEEK_API_KEY env var)"
+                  >
+                    <input
+                      type="password"
+                      value={formState.CLAUDE_MEM_DEEPSEEK_API_KEY || ''}
+                      onChange={(e) => updateSetting('CLAUDE_MEM_DEEPSEEK_API_KEY', e.target.value)}
+                      placeholder="Enter DeepSeek API key..."
+                    />
+                  </FormField>
+                  <FormField
+                    label="DeepSeek Model"
+                    tooltip="DeepSeek model identifier (e.g., deepseek-chat, deepseek-reasoner)"
+                  >
+                    <input
+                      type="text"
+                      value={formState.CLAUDE_MEM_DEEPSEEK_MODEL || 'deepseek-chat'}
+                      onChange={(e) => updateSetting('CLAUDE_MEM_DEEPSEEK_MODEL', e.target.value)}
+                      placeholder="deepseek-chat"
+                    />
+                  </FormField>
+                  <FormField
+                    label="Base URL (Optional)"
+                    tooltip="Override the DeepSeek API endpoint. Leave empty for https://api.deepseek.com"
+                  >
+                    <input
+                      type="text"
+                      value={formState.CLAUDE_MEM_DEEPSEEK_BASE_URL || ''}
+                      onChange={(e) => updateSetting('CLAUDE_MEM_DEEPSEEK_BASE_URL', e.target.value)}
+                      placeholder="https://api.deepseek.com"
                     />
                   </FormField>
                 </>

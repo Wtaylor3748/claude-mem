@@ -676,7 +676,7 @@ function mergeSettings(updates: Record<string, string>): boolean {
   }
 }
 
-type ProviderId = 'claude' | 'gemini' | 'openrouter';
+type ProviderId = 'claude' | 'gemini' | 'openrouter' | 'deepseek';
 type ClaudeAccessMode = 'subscription' | 'api-key';
 type ClaudeApiMode = 'direct' | 'gateway';
 type RuntimeId = 'worker' | 'server-beta';
@@ -1001,6 +1001,7 @@ async function promptProvider(options: InstallOptions): Promise<ProviderId> {
         { value: 'claude', label: 'Claude Agent SDK (recommended)' },
         { value: 'gemini', label: 'Gemini' },
         { value: 'openrouter', label: 'OpenRouter' },
+        { value: 'deepseek', label: 'DeepSeek' },
       ],
       initialValue: initialProvider,
     });
@@ -1016,10 +1017,14 @@ async function promptProvider(options: InstallOptions): Promise<ProviderId> {
     return 'claude';
   }
 
-  const providerLabel = selectedProvider === 'gemini' ? 'Gemini' : 'OpenRouter';
-  const keyEnvName = selectedProvider === 'gemini'
-    ? 'CLAUDE_MEM_GEMINI_API_KEY'
-    : 'CLAUDE_MEM_OPENROUTER_API_KEY';
+  const providerLabels = { gemini: 'Gemini', openrouter: 'OpenRouter', deepseek: 'DeepSeek' } as const;
+  const providerKeyNames = {
+    gemini: 'CLAUDE_MEM_GEMINI_API_KEY',
+    openrouter: 'CLAUDE_MEM_OPENROUTER_API_KEY',
+    deepseek: 'CLAUDE_MEM_DEEPSEEK_API_KEY',
+  } as const;
+  const providerLabel = providerLabels[selectedProvider];
+  const keyEnvName = providerKeyNames[selectedProvider];
 
   const existingKey = getSetting(keyEnvName as keyof SettingsDefaults) as string | undefined;
   if (existingKey && existingKey.trim().length > 0) {
@@ -1130,7 +1135,7 @@ async function promptClaudeModel(options: InstallOptions): Promise<void> {
 
 export interface InstallOptions {
   ide?: string;
-  provider?: 'claude' | 'gemini' | 'openrouter';
+  provider?: 'claude' | 'gemini' | 'openrouter' | 'deepseek';
   model?: string;
   noAutoStart?: boolean;
   // #2543 — non-interactive runtime selection. `server` is the operator-facing
