@@ -15,7 +15,10 @@ import { getAgencyUrls } from './config.mjs';
 const PROPERTY = '810 New Jersey Ave NW, Washington, DC 20001';
 
 export async function checkAgencyPortals() {
-  const browser = await chromium.launch({ headless: true });
+  const browser = await chromium.launch({
+    headless: true,
+    executablePath: '/opt/pw-browsers/chromium'
+  });
   const urls = getAgencyUrls();
   const results = {
     property: PROPERTY,

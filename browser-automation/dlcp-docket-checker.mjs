@@ -15,7 +15,10 @@ const DLCP_URL = 'https://dlcp.dcourt.dc.gov';
 const CASE_SEARCH_URL = `${DLCP_URL}/ccis/case-search`;
 
 export async function checkDLCPDockets() {
-  const browser = await chromium.launch({ headless: false }); // Show browser for CAPTCHA
+  const browser = await chromium.launch({
+    headless: true, // Cloud environment requires headless mode
+    executablePath: '/opt/pw-browsers/chromium'
+  });
   const context = await browser.newContext();
 
   const creds = loadCredentials();
@@ -41,17 +44,11 @@ export async function checkDLCPDockets() {
     // Check if login is required (CAPTCHA present)
     const captchaPresent = await page.$('iframe[title*="reCAPTCHA"]') !== null;
     if (captchaPresent && !savedCookies) {
-      console.log('\n⚠ CAPTCHA detected. Waiting for manual entry (you have 5 minutes)...');
-      console.log('   Please solve the CAPTCHA in the browser window.');
-
-      // Wait for user to solve CAPTCHA and navigate
-      await page.waitForNavigation({ waitUntil: 'networkidle', timeout: 5 * 60 * 1000 }).catch(() => {
-        throw new Error('CAPTCHA timeout: Please solve manually and refresh.');
-      });
-
-      // Save cookies for future runs
-      const cookies = await context.cookies();
-      await saveCookies(cookies, 'dlcp');
+      throw new Error(
+        'DLCP CAPTCHA required. No saved session cookies found.\n' +
+        'First-time setup: Visit https://dlcp.dcourt.dc.gov manually in your browser, log in with your DLCP credentials, solve the CAPTCHA, and wait for cookies to be saved to ~/.claude-mem/browser-sessions/dlcp.json\n' +
+        'Once saved, this script will use them for future runs.'
+      );
     }
 
     // Search for each case

@@ -13,7 +13,10 @@ const RECORDER_URL = 'https://www.dccourts.us/dc-recorder-of-deeds';
 const SEARCH_URL = `${RECORDER_URL}/search/web-search`; // Adjusted URL; may need update based on actual interface
 
 export async function checkRecorderOfDeeds() {
-  const browser = await chromium.launch({ headless: true });
+  const browser = await chromium.launch({
+    headless: true,
+    executablePath: '/opt/pw-browsers/chromium'
+  });
   const page = await browser.newPage();
 
   const results = {
