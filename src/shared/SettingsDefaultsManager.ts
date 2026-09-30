@@ -23,6 +23,11 @@ export interface SettingsDefaults {
   CLAUDE_MEM_OPENROUTER_APP_NAME: string;
   CLAUDE_MEM_OPENROUTER_MAX_CONTEXT_MESSAGES: string;
   CLAUDE_MEM_OPENROUTER_MAX_TOKENS: string;
+  CLAUDE_MEM_DEEPSEEK_API_KEY: string;
+  CLAUDE_MEM_DEEPSEEK_MODEL: string;
+  CLAUDE_MEM_DEEPSEEK_BASE_URL: string;
+  CLAUDE_MEM_DEEPSEEK_MAX_CONTEXT_MESSAGES: string;
+  CLAUDE_MEM_DEEPSEEK_MAX_TOKENS: string;
   CLAUDE_MEM_DATA_DIR: string;
   CLAUDE_MEM_LOG_LEVEL: string;
   CLAUDE_MEM_PYTHON_VERSION: string;
@@ -103,6 +108,11 @@ export class SettingsDefaultsManager {
     CLAUDE_MEM_OPENROUTER_APP_NAME: 'claude-mem',  // App name for OpenRouter analytics
     CLAUDE_MEM_OPENROUTER_MAX_CONTEXT_MESSAGES: '20',  // Max messages in context window
     CLAUDE_MEM_OPENROUTER_MAX_TOKENS: '100000',  // Max estimated tokens (~100k safety limit)
+    CLAUDE_MEM_DEEPSEEK_API_KEY: '',  // Empty by default, can be set via UI or DEEPSEEK_API_KEY env
+    CLAUDE_MEM_DEEPSEEK_MODEL: 'deepseek-chat',  // Default DeepSeek model
+    CLAUDE_MEM_DEEPSEEK_BASE_URL: '',  // Empty = https://api.deepseek.com
+    CLAUDE_MEM_DEEPSEEK_MAX_CONTEXT_MESSAGES: '20',  // Max messages in context window
+    CLAUDE_MEM_DEEPSEEK_MAX_TOKENS: '100000',  // Max estimated tokens (~100k safety limit)
     CLAUDE_MEM_DATA_DIR: join(homedir(), '.claude-mem'),
     CLAUDE_MEM_LOG_LEVEL: 'INFO',
     CLAUDE_MEM_PYTHON_VERSION: '3.13',

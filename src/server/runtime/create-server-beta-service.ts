@@ -11,6 +11,7 @@ import { ActiveServerBetaQueueManager } from './ActiveServerBetaQueueManager.js'
 import { ActiveServerBetaGenerationWorkerManager } from './ActiveServerBetaGenerationWorkerManager.js';
 import { ClaudeObservationProvider } from '../generation/providers/ClaudeObservationProvider.js';
 import { GeminiObservationProvider } from '../generation/providers/GeminiObservationProvider.js';
+import { DeepSeekObservationProvider } from '../generation/providers/DeepSeekObservationProvider.js';
 import { OpenRouterObservationProvider } from '../generation/providers/OpenRouterObservationProvider.js';
 import type { ServerGenerationProvider } from '../generation/providers/shared/types.js';
 import { ServerBetaService } from './ServerBetaService.js';
@@ -253,6 +254,15 @@ function buildServerGenerationProviderFromEnv(): ServerGenerationProvider | null
       const opts: { apiKey: string; model?: string } = { apiKey };
       if (process.env.CLAUDE_MEM_SERVER_MODEL) opts.model = process.env.CLAUDE_MEM_SERVER_MODEL;
       return new GeminiObservationProvider(opts);
+    }
+    if (provider === 'deepseek') {
+      const apiKey = process.env.DEEPSEEK_API_KEY ?? process.env.CLAUDE_MEM_DEEPSEEK_API_KEY ?? '';
+      if (!apiKey) return null;
+      const opts: { apiKey: string; model?: string; baseUrl?: string } = { apiKey };
+      if (process.env.CLAUDE_MEM_SERVER_MODEL) opts.model = process.env.CLAUDE_MEM_SERVER_MODEL;
+      const baseUrl = process.env.CLAUDE_MEM_DEEPSEEK_BASE_URL ?? process.env.DEEPSEEK_BASE_URL;
+      if (baseUrl) opts.baseUrl = baseUrl;
+      return new DeepSeekObservationProvider(opts);
     }
     if (provider === 'openrouter') {
       const apiKey = process.env.OPENROUTER_API_KEY ?? process.env.CLAUDE_MEM_OPENROUTER_API_KEY ?? '';

@@ -2,6 +2,7 @@
 import { buildContinuationPrompt, buildInitPrompt, buildObservationPrompt, buildSummaryPrompt } from '../../sdk/prompts.js';
 import { getCredential } from '../../shared/EnvManager.js';
 import { resolveOpenRouterChatCompletionsUrl } from '../../shared/openrouter-base-url.js';
+import { DEFAULT_DEEPSEEK_MODEL, resolveDeepSeekChatCompletionsUrl } from '../../shared/deepseek-base-url.js';
 import { SettingsDefaultsManager } from '../../shared/SettingsDefaultsManager.js';
 import { USER_SETTINGS_PATH } from '../../shared/paths.js';
 import { logger } from '../../utils/logger.js';
@@ -57,7 +58,9 @@ export function classifyOpenRouterError(input: {
   headers?: Headers | { get(name: string): string | null };
   cause: unknown;
   requestId?: string;
+  providerLabel?: string;
 }): ClassifiedProviderError {
+  const label = input.providerLabel ?? 'OpenRouter';
   const status = input.status;
   const body = input.bodyText ?? '';
   const lower = body.toLowerCase();
@@ -71,35 +74,35 @@ export function classifyOpenRouterError(input: {
     lower.includes('insufficient_quota')
   ) {
     return new ClassifiedProviderError(
-      `OpenRouter quota exhausted${status !== undefined ? ` (status ${status})` : ''}`,
+      `${label} quota exhausted${status !== undefined ? ` (status ${status})` : ''}`,
       { kind: 'quota_exhausted', cause: input.cause },
     );
   }
 
   if (status === 429) {
     return new ClassifiedProviderError(
-      'OpenRouter rate limit (429)',
+      `${label} rate limit (429)`,
       { kind: 'rate_limit', cause: input.cause, ...(retryAfterMs !== undefined ? { retryAfterMs } : {}) },
     );
   }
 
   if (status === 401 || status === 403) {
     return new ClassifiedProviderError(
-      `OpenRouter auth error (status ${status})`,
+      `${label} auth error (status ${status})`,
       { kind: 'auth_invalid', cause: input.cause },
     );
   }
 
   if (status === 400 || status === 404) {
     return new ClassifiedProviderError(
-      `OpenRouter bad request (status ${status})`,
+      `${label} bad request (status ${status})`,
       { kind: 'unrecoverable', cause: input.cause },
     );
   }
 
   if (status !== undefined && status >= 500 && status < 600) {
     return new ClassifiedProviderError(
-      `OpenRouter upstream error (status ${status})`,
+      `${label} upstream error (status ${status})`,
       { kind: 'transient', cause: input.cause },
     );
   }
@@ -107,13 +110,13 @@ export function classifyOpenRouterError(input: {
   // Network errors (no status) — treat as transient.
   if (status === undefined) {
     return new ClassifiedProviderError(
-      `OpenRouter network error: ${input.cause instanceof Error ? input.cause.message : String(input.cause)}`,
+      `${label} network error: ${input.cause instanceof Error ? input.cause.message : String(input.cause)}`,
       { kind: 'transient', cause: input.cause },
     );
   }
 
   return new ClassifiedProviderError(
-    `OpenRouter API error: ${status}${body ? ` - ${body.substring(0, 200)}` : ''}`,
+    `${label} API error: ${status}${body ? ` - ${body.substring(0, 200)}` : ''}`,
     { kind: 'unrecoverable', cause: input.cause },
   );
 }
@@ -146,27 +149,94 @@ interface OpenRouterResponse {
   };
 }
 
+
+/**
+ * Per-provider configuration for the OpenAI-compatible worker client. The same
+ * client class serves OpenRouter and DeepSeek; only the profile differs.
+ */
+export interface OpenAICompatibleProfile {
+  /** Human-readable name used in logs, errors and agent attribution. */
+  label: string;
+  /** Prefix for synthetic memory session ids. */
+  sessionIdPrefix: string;
+  /** Send OpenRouter's HTTP-Referer / X-Title analytics headers. */
+  attributionHeaders: boolean;
+  getConfig(): { apiKey: string; model: string; apiUrl: string; siteUrl?: string; appName?: string };
+  getLimits(settings: ReturnType<typeof SettingsDefaultsManager.loadFromFile>): { maxContextMessages: string; maxTokens: string };
+  missingKeyMessage: string;
+}
+
+const OPENROUTER_PROFILE: OpenAICompatibleProfile = {
+  label: 'OpenRouter',
+  sessionIdPrefix: 'openrouter',
+  attributionHeaders: true,
+  getConfig: () => {
+    const settings = SettingsDefaultsManager.loadFromFile(USER_SETTINGS_PATH);
+
+    const apiKey = settings.CLAUDE_MEM_OPENROUTER_API_KEY || getCredential('OPENROUTER_API_KEY') || '';
+
+    // Model is passed verbatim — any OpenAI-compatible model id is accepted
+    // (e.g. deepseek-chat, an LM Studio local model). #2393.
+    const model = settings.CLAUDE_MEM_OPENROUTER_MODEL || 'xiaomi/mimo-v2-flash:free';
+
+    // Base URL: settings value wins, then OPENROUTER_BASE_URL env var, else
+    // the default OpenRouter endpoint (unchanged behavior). #2382/#2590/#2622/#2393.
+    const baseUrl = settings.CLAUDE_MEM_OPENROUTER_BASE_URL || process.env.OPENROUTER_BASE_URL || '';
+    const apiUrl = resolveOpenRouterChatCompletionsUrl(baseUrl);
+
+    const siteUrl = settings.CLAUDE_MEM_OPENROUTER_SITE_URL || '';
+    const appName = settings.CLAUDE_MEM_OPENROUTER_APP_NAME || 'claude-mem';
+
+    return { apiKey, model, apiUrl, siteUrl, appName };
+  },
+  getLimits: (settings) => ({
+    maxContextMessages: settings.CLAUDE_MEM_OPENROUTER_MAX_CONTEXT_MESSAGES,
+    maxTokens: settings.CLAUDE_MEM_OPENROUTER_MAX_TOKENS,
+  }),
+  missingKeyMessage: 'OpenRouter API key not configured. Set CLAUDE_MEM_OPENROUTER_API_KEY in settings or OPENROUTER_API_KEY environment variable.',
+};
+
+export const DEEPSEEK_PROFILE: OpenAICompatibleProfile = {
+  label: 'DeepSeek',
+  sessionIdPrefix: 'deepseek',
+  attributionHeaders: false,
+  getConfig: () => {
+    const settings = SettingsDefaultsManager.loadFromFile(USER_SETTINGS_PATH);
+    const apiKey = settings.CLAUDE_MEM_DEEPSEEK_API_KEY || getCredential('DEEPSEEK_API_KEY') || '';
+    const model = settings.CLAUDE_MEM_DEEPSEEK_MODEL || DEFAULT_DEEPSEEK_MODEL;
+    const baseUrl = settings.CLAUDE_MEM_DEEPSEEK_BASE_URL || process.env.DEEPSEEK_BASE_URL || '';
+    return { apiKey, model, apiUrl: resolveDeepSeekChatCompletionsUrl(baseUrl) };
+  },
+  getLimits: (settings) => ({
+    maxContextMessages: settings.CLAUDE_MEM_DEEPSEEK_MAX_CONTEXT_MESSAGES,
+    maxTokens: settings.CLAUDE_MEM_DEEPSEEK_MAX_TOKENS,
+  }),
+  missingKeyMessage: 'DeepSeek API key not configured. Set CLAUDE_MEM_DEEPSEEK_API_KEY in settings or DEEPSEEK_API_KEY environment variable.',
+};
+
 export class OpenRouterProvider {
   private dbManager: DatabaseManager;
   private sessionManager: SessionManager;
+  private profile: OpenAICompatibleProfile;
 
-  constructor(dbManager: DatabaseManager, sessionManager: SessionManager) {
+  constructor(dbManager: DatabaseManager, sessionManager: SessionManager, profile: OpenAICompatibleProfile = OPENROUTER_PROFILE) {
     this.dbManager = dbManager;
     this.sessionManager = sessionManager;
+    this.profile = profile;
   }
 
   async startSession(session: ActiveSession, worker?: WorkerRef): Promise<void> {
-    const { apiKey, model, apiUrl, siteUrl, appName } = this.getOpenRouterConfig();
+    const { apiKey, model, apiUrl, siteUrl, appName } = this.profile.getConfig();
 
     if (!apiKey) {
-      throw new Error('OpenRouter API key not configured. Set CLAUDE_MEM_OPENROUTER_API_KEY in settings or OPENROUTER_API_KEY environment variable.');
+      throw new Error(this.profile.missingKeyMessage);
     }
 
     if (!session.memorySessionId) {
-      const syntheticMemorySessionId = `openrouter-${session.contentSessionId}-${Date.now()}`;
+      const syntheticMemorySessionId = `${this.profile.sessionIdPrefix}-${session.contentSessionId}-${Date.now()}`;
       session.memorySessionId = syntheticMemorySessionId;
       this.dbManager.getSessionStore().updateMemorySessionId(session.sessionDbId, syntheticMemorySessionId);
-      logger.info('SESSION', `MEMORY_ID_GENERATED | sessionDbId=${session.sessionDbId} | provider=OpenRouter`);
+      logger.info('SESSION', `MEMORY_ID_GENERATED | sessionDbId=${session.sessionDbId} | provider=${this.profile.label}`);
     }
 
     const mode = ModeManager.getInstance().getActiveMode();
@@ -182,9 +252,9 @@ export class OpenRouterProvider {
       await this.handleInitResponse(initResponse, session, worker, model);
     } catch (error: unknown) {
       if (error instanceof Error) {
-        logger.error('SDK', 'OpenRouter init failed', { sessionId: session.sessionDbId, model }, error);
+        logger.error('SDK', `${this.profile.label} init failed`, { sessionId: session.sessionDbId, model }, error);
       } else {
-        logger.error('SDK', 'OpenRouter init failed with non-Error', { sessionId: session.sessionDbId, model }, new Error(String(error)));
+        logger.error('SDK', `${this.profile.label} init failed with non-Error`, { sessionId: session.sessionDbId, model }, new Error(String(error)));
       }
       await this.handleSessionError(error, session, worker);
       return;
@@ -198,16 +268,16 @@ export class OpenRouterProvider {
       }
     } catch (error: unknown) {
       if (error instanceof Error) {
-        logger.error('SDK', 'OpenRouter message processing failed', { sessionId: session.sessionDbId, model }, error);
+        logger.error('SDK', `${this.profile.label} message processing failed`, { sessionId: session.sessionDbId, model }, error);
       } else {
-        logger.error('SDK', 'OpenRouter message processing failed with non-Error', { sessionId: session.sessionDbId, model }, new Error(String(error)));
+        logger.error('SDK', `${this.profile.label} message processing failed with non-Error`, { sessionId: session.sessionDbId, model }, new Error(String(error)));
       }
       await this.handleSessionError(error, session, worker);
       return;
     }
 
     const sessionDuration = Date.now() - session.startTime;
-    logger.success('SDK', 'OpenRouter agent completed', {
+    logger.success('SDK', `${this.profile.label} agent completed`, {
       sessionId: session.sessionDbId,
       duration: `${(sessionDuration / 1000).toFixed(1)}s`,
       historyLength: session.conversationHistory.length,
@@ -234,10 +304,10 @@ export class OpenRouterProvider {
 
       await processAgentResponse(
         initResponse.content, session, this.dbManager, this.sessionManager,
-        worker, tokensUsed, null, 'OpenRouter', undefined, model
+        worker, tokensUsed, null, this.profile.label, undefined, model
       );
     } else {
-      logger.error('SDK', 'Empty OpenRouter init response - session may lack context', {
+      logger.error('SDK', `Empty ${this.profile.label} init response - session may lack context`, {
         sessionId: session.sessionDbId, model
       });
     }
@@ -320,7 +390,7 @@ export class OpenRouterProvider {
 
     await processAgentResponse(
       obsResponse.content || '', session, this.dbManager, this.sessionManager,
-      worker, tokensUsed, originalTimestamp, 'OpenRouter', lastCwd, model
+      worker, tokensUsed, originalTimestamp, this.profile.label, lastCwd, model
     );
   }
 
@@ -362,17 +432,17 @@ export class OpenRouterProvider {
 
     await processAgentResponse(
       summaryResponse.content || '', session, this.dbManager, this.sessionManager,
-      worker, tokensUsed, originalTimestamp, 'OpenRouter', lastCwd, model
+      worker, tokensUsed, originalTimestamp, this.profile.label, lastCwd, model
     );
   }
 
   private async handleSessionError(error: unknown, session: ActiveSession, _worker?: WorkerRef): Promise<never> {
     if (isAbortError(error)) {
-      logger.warn('SDK', 'OpenRouter agent aborted', { sessionId: session.sessionDbId });
+      logger.warn('SDK', `${this.profile.label} agent aborted`, { sessionId: session.sessionDbId });
       throw error;
     }
 
-    logger.failure('SDK', 'OpenRouter agent error', { sessionDbId: session.sessionDbId }, error instanceof Error ? error : new Error(String(error)));
+    logger.failure('SDK', `${this.profile.label} agent error`, { sessionDbId: session.sessionDbId }, error instanceof Error ? error : new Error(String(error)));
     throw error;
   }
 
@@ -383,8 +453,9 @@ export class OpenRouterProvider {
   private truncateHistory(history: ConversationMessage[]): ConversationMessage[] {
     const settings = SettingsDefaultsManager.loadFromFile(USER_SETTINGS_PATH);
 
-    const MAX_CONTEXT_MESSAGES = parseInt(settings.CLAUDE_MEM_OPENROUTER_MAX_CONTEXT_MESSAGES) || DEFAULT_MAX_CONTEXT_MESSAGES;
-    const MAX_ESTIMATED_TOKENS = parseInt(settings.CLAUDE_MEM_OPENROUTER_MAX_TOKENS) || DEFAULT_MAX_ESTIMATED_TOKENS;
+    const limits = this.profile.getLimits(settings);
+    const MAX_CONTEXT_MESSAGES = parseInt(limits.maxContextMessages) || DEFAULT_MAX_CONTEXT_MESSAGES;
+    const MAX_ESTIMATED_TOKENS = parseInt(limits.maxTokens) || DEFAULT_MAX_ESTIMATED_TOKENS;
 
     if (history.length <= MAX_CONTEXT_MESSAGES) {
       const totalTokens = history.reduce((sum, m) => sum + this.estimateTokens(m.content), 0);
@@ -438,7 +509,7 @@ export class OpenRouterProvider {
     const totalChars = truncatedHistory.reduce((sum, m) => sum + m.content.length, 0);
     const estimatedTokens = this.estimateTokens(truncatedHistory.map(m => m.content).join(''));
 
-    logger.debug('SDK', `Querying OpenRouter multi-turn (${model})`, {
+    logger.debug('SDK', `Querying ${this.profile.label} multi-turn (${model})`, {
       turns: truncatedHistory.length,
       totalChars,
       estimatedTokens
@@ -453,8 +524,10 @@ export class OpenRouterProvider {
           method: 'POST',
           headers: {
             'Authorization': `Bearer ${apiKey}`,
-            'HTTP-Referer': siteUrl || 'https://github.com/thedotmack/claude-mem',
-            'X-Title': appName || 'claude-mem',
+            ...(this.profile.attributionHeaders ? {
+              'HTTP-Referer': siteUrl || 'https://github.com/thedotmack/claude-mem',
+              'X-Title': appName || 'claude-mem',
+            } : {}),
             'Content-Type': 'application/json',
             ...(priorRequestId ? { 'x-claude-mem-prior-request-id': priorRequestId } : {}),
           },
@@ -467,14 +540,14 @@ export class OpenRouterProvider {
           signal: attemptSignal,
         });
       } catch (networkError: unknown) {
-        throw classifyOpenRouterError({ cause: networkError });
+        throw classifyOpenRouterError({ cause: networkError, providerLabel: this.profile.label });
       }
 
       const requestId = response.headers.get('x-request-id') ?? response.headers.get('x-openrouter-request-id');
       if (requestId) {
         priorRequestId = requestId;
       } else {
-        logger.debug('SDK', 'OpenRouter response missing request-id header; retry dedup is best-effort');
+        logger.debug('SDK', `${this.profile.label} response missing request-id header; retry dedup is best-effort`);
       }
 
       if (!response.ok) {
@@ -483,7 +556,8 @@ export class OpenRouterProvider {
           status: response.status,
           bodyText: errorText,
           headers: response.headers,
-          cause: new Error(`OpenRouter API error: ${response.status} - ${errorText}`),
+          cause: new Error(`${this.profile.label} API error: ${response.status} - ${errorText}`),
+          providerLabel: this.profile.label,
           ...(requestId ? { requestId } : {}),
         });
       }
@@ -496,15 +570,16 @@ export class OpenRouterProvider {
           status: response.status,
           bodyText: `${responseData.error.code} ${responseData.error.message ?? ''}`,
           headers: response.headers,
-          cause: new Error(`OpenRouter API error: ${responseData.error.code} - ${responseData.error.message}`),
+          cause: new Error(`${this.profile.label} API error: ${responseData.error.code} - ${responseData.error.message}`),
+          providerLabel: this.profile.label,
         });
       }
 
       return responseData;
-    }, { label: `OpenRouter ${model}` });
+    }, { label: `${this.profile.label} ${model}` });
 
     if (!data.choices?.[0]?.message?.content) {
-      logger.error('SDK', 'Empty response from OpenRouter');
+      logger.error('SDK', `Empty response from ${this.profile.label}`);
       return { content: '' };
     }
 
@@ -516,7 +591,7 @@ export class OpenRouterProvider {
       const outputTokens = data.usage?.completion_tokens || 0;
       const estimatedCost = (inputTokens / 1000000 * 3) + (outputTokens / 1000000 * 15);
 
-      logger.info('SDK', 'OpenRouter API usage', {
+      logger.info('SDK', `${this.profile.label} API usage`, {
         model,
         inputTokens,
         outputTokens,
@@ -535,27 +610,6 @@ export class OpenRouterProvider {
 
     return { content, tokensUsed };
   }
-
-  private getOpenRouterConfig(): { apiKey: string; model: string; apiUrl: string; siteUrl?: string; appName?: string } {
-    const settingsPath = USER_SETTINGS_PATH;
-    const settings = SettingsDefaultsManager.loadFromFile(settingsPath);
-
-    const apiKey = settings.CLAUDE_MEM_OPENROUTER_API_KEY || getCredential('OPENROUTER_API_KEY') || '';
-
-    // Model is passed verbatim — any OpenAI-compatible model id is accepted
-    // (e.g. deepseek-chat, an LM Studio local model). #2393.
-    const model = settings.CLAUDE_MEM_OPENROUTER_MODEL || 'xiaomi/mimo-v2-flash:free';
-
-    // Base URL: settings value wins, then OPENROUTER_BASE_URL env var, else
-    // the default OpenRouter endpoint (unchanged behavior). #2382/#2590/#2622/#2393.
-    const baseUrl = settings.CLAUDE_MEM_OPENROUTER_BASE_URL || process.env.OPENROUTER_BASE_URL || '';
-    const apiUrl = resolveOpenRouterChatCompletionsUrl(baseUrl);
-
-    const siteUrl = settings.CLAUDE_MEM_OPENROUTER_SITE_URL || '';
-    const appName = settings.CLAUDE_MEM_OPENROUTER_APP_NAME || 'claude-mem';
-
-    return { apiKey, model, apiUrl, siteUrl, appName };
-  }
 }
 
 export function isOpenRouterAvailable(): boolean {
@@ -568,4 +622,14 @@ export function isOpenRouterSelected(): boolean {
   const settingsPath = USER_SETTINGS_PATH;
   const settings = SettingsDefaultsManager.loadFromFile(settingsPath);
   return settings.CLAUDE_MEM_PROVIDER === 'openrouter';
+}
+
+export function isDeepSeekAvailable(): boolean {
+  const settings = SettingsDefaultsManager.loadFromFile(USER_SETTINGS_PATH);
+  return !!(settings.CLAUDE_MEM_DEEPSEEK_API_KEY || getCredential('DEEPSEEK_API_KEY'));
+}
+
+export function isDeepSeekSelected(): boolean {
+  const settings = SettingsDefaultsManager.loadFromFile(USER_SETTINGS_PATH);
+  return settings.CLAUDE_MEM_PROVIDER === 'deepseek';
 }

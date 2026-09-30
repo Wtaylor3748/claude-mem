@@ -236,3 +236,12 @@ describe('classifyClaudeError', () => {
     expect(err.kind).toBe('transient');
   });
 });
+
+describe('classifyOpenRouterError providerLabel', () => {
+  it('uses the supplied provider label in the message', () => {
+    const err = classifyOpenRouterError({ status: 401, cause: new Error('401'), providerLabel: 'DeepSeek' });
+    expect(err.kind).toBe('auth_invalid');
+    expect(err.message).toContain('DeepSeek');
+    expect(err.message).not.toContain('OpenRouter');
+  });
+});

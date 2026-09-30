@@ -1,0 +1,48 @@
+---
+title: "DeepSeek Provider"
+description: "Use DeepSeek's OpenAI-compatible API directly for observation extraction"
+---
+
+# DeepSeek Provider
+
+Claude-mem can call [DeepSeek](https://platform.deepseek.com) directly to extract observations, without going through OpenRouter.
+
+## Setup
+
+**Viewer UI**: open Settings, set **AI Provider** to *DeepSeek*, and paste your API key.
+
+**Settings file** (`~/.claude-mem/settings.json`):
+
+```json
+{
+  "CLAUDE_MEM_PROVIDER": "deepseek",
+  "CLAUDE_MEM_DEEPSEEK_API_KEY": "sk-...",
+  "CLAUDE_MEM_DEEPSEEK_MODEL": "deepseek-chat"
+}
+```
+
+**Environment**: alternatively, put `DEEPSEEK_API_KEY=sk-...` in `~/.claude-mem/.env`.
+
+**Installer**: `npx claude-mem install --provider deepseek`
+
+## Settings
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `CLAUDE_MEM_DEEPSEEK_API_KEY` | — | API key (or `DEEPSEEK_API_KEY` in `~/.claude-mem/.env`) |
+| `CLAUDE_MEM_DEEPSEEK_MODEL` | `deepseek-chat` | Model id, sent verbatim (e.g. `deepseek-reasoner`) |
+| `CLAUDE_MEM_DEEPSEEK_BASE_URL` | `https://api.deepseek.com` | Override for a proxy or gateway. `/chat/completions` is appended unless already present. `DEEPSEEK_BASE_URL` env is also honored. |
+| `CLAUDE_MEM_DEEPSEEK_MAX_CONTEXT_MESSAGES` | `20` | Messages kept in the conversation window (1–100) |
+| `CLAUDE_MEM_DEEPSEEK_MAX_TOKENS` | `100000` | Estimated-token cap on the window (1,000–1,000,000) |
+
+## Server runtime
+
+The server runtime selects DeepSeek with `CLAUDE_MEM_SERVER_PROVIDER=deepseek` plus `DEEPSEEK_API_KEY` (or `CLAUDE_MEM_DEEPSEEK_API_KEY`). `CLAUDE_MEM_SERVER_MODEL` and `CLAUDE_MEM_DEEPSEEK_BASE_URL` are optional.
+
+## Error handling
+
+Behavior matches the OpenRouter provider: 429s, 5xx and network failures are retried and leave messages pending, and 401/403 surface as auth errors.
+
+<Note>
+Previously DeepSeek could be reached by pointing the OpenRouter provider at `https://api.deepseek.com`. That still works; the dedicated provider just keeps its own key, model and limits.
+</Note>

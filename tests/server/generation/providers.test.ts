@@ -12,6 +12,7 @@ import {
 } from '../../../src/server/generation/providers/ClaudeObservationProvider.js';
 import { GeminiObservationProvider } from '../../../src/server/generation/providers/GeminiObservationProvider.js';
 import { OpenRouterObservationProvider } from '../../../src/server/generation/providers/OpenRouterObservationProvider.js';
+import { DeepSeekObservationProvider } from '../../../src/server/generation/providers/DeepSeekObservationProvider.js';
 import { buildServerGenerationPrompt } from '../../../src/server/generation/providers/shared/prompt-builder.js';
 import type { ServerGenerationContext } from '../../../src/server/generation/providers/shared/types.js';
 
@@ -285,5 +286,59 @@ describe('OpenRouterObservationProvider', () => {
     await provider.generate(makeContext());
     const body = JSON.parse(String(capturing.lastInit?.body)) as { model?: string };
     expect(body.model).toBe('deepseek-chat');
+  });
+});
+
+describe('DeepSeekObservationProvider', () => {
+  const ok = () => jsonResponse(200, {
+    choices: [{ message: { content: '<observation><type>x</type><title>d</title></observation>' } }],
+    usage: { total_tokens: 7 },
+  });
+
+  it('parses the response and labels the result deepseek', async () => {
+    const fakeFetch = new FakeFetch(ok());
+    const provider = new DeepSeekObservationProvider({ apiKey: 'fake', fetchImpl: fakeFetch.fetch });
+    const result = await provider.generate(makeContext());
+    expect(result.rawText).toContain('<observation>');
+    expect(result.tokensUsed).toBe(7);
+    expect(result.providerLabel).toBe('deepseek');
+  });
+
+  it('defaults to api.deepseek.com and deepseek-chat with a Bearer key', async () => {
+    const capturing = new CapturingFetch(ok());
+    const provider = new DeepSeekObservationProvider({ apiKey: 'sk-test', fetchImpl: capturing.fetch });
+    await provider.generate(makeContext());
+    expect(capturing.lastUrl).toBe('https://api.deepseek.com/chat/completions');
+    const body = JSON.parse(String(capturing.lastInit?.body)) as { model?: string };
+    expect(body.model).toBe('deepseek-chat');
+    const headers = capturing.lastInit?.headers as Record<string, string>;
+    expect(headers.Authorization).toBe('Bearer sk-test');
+  });
+
+  it('honors a base URL override', async () => {
+    const capturing = new CapturingFetch(ok());
+    const provider = new DeepSeekObservationProvider({
+      apiKey: 'fake',
+      baseUrl: 'https://proxy.example.com/v1/',
+      fetchImpl: capturing.fetch,
+    });
+    await provider.generate(makeContext());
+    expect(capturing.lastUrl).toBe('https://proxy.example.com/v1/chat/completions');
+  });
+
+  it('classifies a 401 as auth_invalid', async () => {
+    const fakeFetch = new FakeFetch(jsonResponse(401, { error: { message: 'bad key' } }));
+    const provider = new DeepSeekObservationProvider({ apiKey: 'fake', fetchImpl: fakeFetch.fetch });
+    try {
+      await provider.generate(makeContext());
+      expect.unreachable();
+    } catch (error) {
+      expect(error).toBeInstanceOf(ServerClassifiedProviderError);
+      expect((error as ServerClassifiedProviderError).kind).toBe('auth_invalid');
+    }
+  });
+
+  it('rejects construction without an API key', () => {
+    expect(() => new DeepSeekObservationProvider({ apiKey: '' })).toThrow();
   });
 });
