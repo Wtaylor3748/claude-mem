@@ -1,10 +1,26 @@
-import { readFileSync, writeFileSync, existsSync } from 'fs';
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
 
 const CLAUDE_MEM_DIR = join(homedir(), '.claude-mem');
 const SESSION_DIR = join(CLAUDE_MEM_DIR, 'browser-sessions');
 const ENV_FILE = join(CLAUDE_MEM_DIR, '.env');
+
+/**
+ * Read ~/.claude-mem/.env as key/value pairs without requiring any key.
+ * Returns {} when the file is missing.
+ */
+export function loadEnv() {
+  if (!existsSync(ENV_FILE)) return {};
+  const env = {};
+  readFileSync(ENV_FILE, 'utf-8').split('\n').forEach((line) => {
+    const [key, ...valueParts] = line.split('=');
+    if (key && key.trim() && !key.trim().startsWith('#')) {
+      env[key.trim()] = valueParts.join('=').trim();
+    }
+  });
+  return env;
+}
 
 /**
  * Load credentials from ~/.claude-mem/.env
@@ -41,7 +57,7 @@ export function saveCookies(cookieArray, serviceName) {
   const sessionFile = join(SESSION_DIR, `${serviceName}-cookies.json`);
   try {
     if (!existsSync(SESSION_DIR)) {
-      require('child_process').execSync(`mkdir -p ${SESSION_DIR}`);
+      mkdirSync(SESSION_DIR, { recursive: true });
     }
     writeFileSync(sessionFile, JSON.stringify(cookieArray, null, 2));
     console.log(`✓ Saved ${serviceName} session cookies to ${sessionFile}`);
@@ -74,11 +90,22 @@ export function loadCookies(serviceName) {
  * Parse environment for case numbers (from capitalized env vars or hardcoded defaults)
  */
 export function getCaseNumbers() {
+  // Superior Court cases only; these are on the Odyssey Portal.
   return {
     primary: '2023-LTB-006634',
     consolidated: '2025-LTB-007644',
     cab: '2024-CAB-004360',
-    appeal: '24-CV-0537',
+  };
+}
+
+/**
+ * D.C. Court of Appeals cases. These are not on the Superior Court Portal;
+ * check them at https://www.dccourts.gov/services/cases-online.
+ */
+export function getAppealNumbers() {
+  return {
+    protectiveOrderAppeal: '26-CV-0411',
+    // 24-CV-0537 is closed (affirmed July 31, 2025; mandate issued).
   };
 }
 
@@ -86,11 +113,19 @@ export function getCaseNumbers() {
  * Get D.C. agency portal URLs
  */
 export function getAgencyUrls() {
+  const env = loadEnv();
   return {
-    dlcp: 'https://dlcp.dcourt.dc.gov',
-    recorder: 'https://www.dccourts.us/dc-recorder-of-deeds',
+    // Superior Court civil, L&T, and CAB dockets moved to the Odyssey Portal on
+    // Oct 31, 2022; dccourts.gov/eAccess links to it. Override with
+    // DC_COURT_PORTAL_URL once the direct Portal URL is confirmed.
+    courtPortal: env.DC_COURT_PORTAL_URL || 'https://www.dccourts.gov/eAccess',
+    // Department of Licensing and Consumer Protection (licenses, CorpOnline).
+    dlcp: 'https://dlcp.dc.gov',
+    // Recorder of Deeds public search (GovOS/Neumo).
+    recorder: env.DC_RECORDER_URL || 'https://washington.dc.publicsearch.us',
     otr: 'https://otr.dc.gov',
-    dob: 'https://dbh.dc.gov',
+    // Department of Buildings (dbh.dc.gov is Behavioral Health).
+    dob: 'https://dob.dc.gov',
     doee: 'https://doee.dc.gov',
   };
 }

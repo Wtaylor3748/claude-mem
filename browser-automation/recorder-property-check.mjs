@@ -1,4 +1,5 @@
 import { chromium } from 'playwright';
+import { getAgencyUrls } from './config.mjs';
 
 /**
  * D.C. Recorder of Deeds Property Checker
@@ -9,8 +10,8 @@ import { chromium } from 'playwright';
  * Searches for: ownership info, liens, recent recorded documents, conveyances.
  */
 
-const RECORDER_URL = 'https://www.dccourts.us/dc-recorder-of-deeds';
-const SEARCH_URL = `${RECORDER_URL}/search/web-search`; // Adjusted URL; may need update based on actual interface
+const RECORDER_URL = getAgencyUrls().recorder;
+const SEARCH_URL = RECORDER_URL; // [verify selectors on live site] GovOS public search; search path not yet confirmed
 
 export async function checkRecorderOfDeeds() {
   const browser = await chromium.launch({ headless: true });

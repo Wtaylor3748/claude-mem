@@ -1,28 +1,39 @@
 import { chromium } from 'playwright';
-import { loadCredentials, saveCookies, loadCookies, getCaseNumbers, getAgencyUrls } from './config.mjs';
+import { saveCookies, loadCookies, getCaseNumbers, getAgencyUrls } from './config.mjs';
 
 /**
- * DLCP Docket Checker
+ * Superior Court Docket Checker
  *
- * Logs into D.C. Superior Court eAccess (DLCP) and pulls current docket info
- * for all Capitol Vista cases.
+ * Pulls Register of Actions entries for the Capitol Vista Superior Court cases
+ * from the D.C. Superior Court Odyssey Portal (civil, L&T, and CAB cases since
+ * Oct 31, 2022). The file keeps its old name so existing callers still work.
+ * DLCP is the licensing agency, not the court; no DLCP login is used.
  *
- * WARNING: DLCP has a CAPTCHA. The first run will PAUSE and wait for manual CAPTCHA entry.
- * Subsequent runs will use saved session cookies to skip CAPTCHA (until expiry).
+ * Public case records are viewable without an account. If the Portal shows a
+ * CAPTCHA, the first run pauses for manual entry and saves session cookies.
+ *
+ * DCCA appeals (26-CV-0411) are not on this Portal; see getAppealNumbers().
  */
 
-const DLCP_URL = 'https://dlcp.dcourt.dc.gov';
-const CASE_SEARCH_URL = `${DLCP_URL}/ccis/case-search`;
+const PORTAL_URL = getAgencyUrls().courtPortal;
+
+// [verify selectors on live portal] The Odyssey Portal case search has not been
+// inspected from this repo. Confirm each selector in a headed run and update.
+const SELECTORS = {
+  caseNumberInput: 'input[name="caseNumber"], input[id*="CaseNumber" i], input[placeholder*="case number" i]',
+  submit: 'button[type="submit"], input[type="submit"]',
+  resultLink: 'a[href*="CaseDetail" i], a.caseLink',
+  rows: 'table tr',
+};
 
 export async function checkDLCPDockets() {
   const browser = await chromium.launch({ headless: false }); // Show browser for CAPTCHA
   const context = await browser.newContext();
 
-  const creds = loadCredentials();
   const cases = getCaseNumbers();
 
   // Try to use saved cookies to skip CAPTCHA
-  const savedCookies = loadCookies('dlcp');
+  const savedCookies = loadCookies('court-portal');
   if (savedCookies) {
     await context.addCookies(savedCookies);
     console.log('ℹ Using saved session cookies (CAPTCHA should be skipped)');
@@ -35,8 +46,8 @@ export async function checkDLCPDockets() {
 
   try {
     // Navigate to case search
-    console.log(`\n→ Navigating to ${CASE_SEARCH_URL}...`);
-    await page.goto(CASE_SEARCH_URL, { waitUntil: 'networkidle' });
+    console.log(`\n→ Navigating to ${PORTAL_URL}...`);
+    await page.goto(PORTAL_URL, { waitUntil: 'networkidle' });
 
     // Check if login is required (CAPTCHA present)
     const captchaPresent = await page.$('iframe[title*="reCAPTCHA"]') !== null;
@@ -51,24 +62,33 @@ export async function checkDLCPDockets() {
 
       // Save cookies for future runs
       const cookies = await context.cookies();
-      await saveCookies(cookies, 'dlcp');
+      await saveCookies(cookies, 'court-portal');
     }
 
     // Search for each case
     for (const [caseType, caseNo] of Object.entries(cases)) {
       console.log(`\n→ Searching for case: ${caseNo}`);
 
-      // Clear search field
-      await page.fill('input[name="caseNumber"]', '');
-      await page.fill('input[name="caseNumber"]', caseNo);
+      const input = await page.$(SELECTORS.caseNumberInput);
+      if (!input) {
+        throw new Error(`Case-number field not found at ${page.url()}; update SELECTORS.caseNumberInput`);
+      }
+      await input.fill('');
+      await input.fill(caseNo);
 
-      // Submit search
-      await page.click('button[type="submit"]');
-      await page.waitForNavigation({ waitUntil: 'networkidle' });
+      await Promise.all([
+        page.waitForLoadState('networkidle'),
+        page.click(SELECTORS.submit),
+      ]);
 
-      // Extract docket info (basic structure; adjust selectors based on actual DLCP UI)
-      const docketInfo = await page.evaluate(() => {
-        const rows = document.querySelectorAll('table tr');
+      // Odyssey lists matching cases first; open the case if a link is shown.
+      const caseLink = await page.$(SELECTORS.resultLink);
+      if (caseLink) {
+        await Promise.all([page.waitForLoadState('networkidle'), caseLink.click()]);
+      }
+
+      const docketInfo = await page.evaluate((rowSelector) => {
+        const rows = document.querySelectorAll(rowSelector);
         const docket = [];
         rows.forEach((row) => {
           const cells = row.querySelectorAll('td');
@@ -81,7 +101,7 @@ export async function checkDLCPDockets() {
           }
         });
         return docket;
-      });
+      }, SELECTORS.rows);
 
       results[caseNo] = {
         caseType,
@@ -93,7 +113,7 @@ export async function checkDLCPDockets() {
     }
 
   } catch (error) {
-    console.error(`✗ Error checking DLCP dockets: ${error.message}`);
+    console.error(`✗ Error checking court dockets: ${error.message}`);
     results.error = error.message;
   } finally {
     await context.close();
@@ -107,7 +127,7 @@ export async function checkDLCPDockets() {
 if (import.meta.url === `file://${process.argv[1]}`) {
   try {
     const results = await checkDLCPDockets();
-    console.log('\n--- DLCP Docket Check Results ---');
+    console.log('\n--- Superior Court Docket Check Results ---');
     console.log(JSON.stringify(results, null, 2));
     process.exit(0);
   } catch (error) {
@@ -115,3 +135,5 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     process.exit(1);
   }
 }
+
+export { checkDLCPDockets as checkCourtDockets };
