@@ -25,8 +25,8 @@ export async function checkAgencyPortals() {
 
   // Check each agency
   for (const [agency, baseUrl] of Object.entries(urls)) {
-    if (agency === 'dlcp' || agency === 'recorder') {
-      // Skip DLCP and Recorder; they have dedicated scripts
+    if (agency === 'dlcp' || agency === 'recorder' || agency === 'courtPortal') {
+      // Skip DLCP, Recorder, and the court Portal; they have dedicated scripts
       continue;
     }
 

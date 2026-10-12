@@ -5,14 +5,14 @@
  *
  * Usage:
  *   node test-run.mjs                    # Run all checks
- *   node test-run.mjs dlcp                # Run only DLCP check
+ *   node test-run.mjs dlcp                # Run only the Superior Court docket check (headed browser; run on your Mac)
  *   node test-run.mjs recorder            # Run only Recorder check
  *   node test-run.mjs agencies            # Run only agency portals check
  */
 
 import { checkRecorderOfDeeds } from './recorder-property-check.mjs';
 import { checkAgencyPortals } from './agency-portal-checker.mjs';
-// import { checkDLCPDockets } from './dlcp-docket-checker.mjs'; // Requires user setup
+import { checkCourtDockets } from './dlcp-docket-checker.mjs';
 
 const testType = process.argv[2] || 'all';
 
@@ -48,16 +48,20 @@ async function runTests() {
     }
   }
 
-  if (testType === 'dlcp' || testType === 'all') {
+  // The docket check opens a visible browser (possible CAPTCHA), so it runs only
+  // when asked for by name, not under 'all'.
+  if (testType === 'dlcp') {
     console.log('\n' + '━'.repeat(60));
-    console.log('⚖️ Testing DLCP (Requires Manual Setup)');
+    console.log('⚖️ Testing Superior Court Portal dockets');
     console.log('━'.repeat(60));
-    console.log('ℹ DLCP test requires:');
-    console.log('  1. Your DLCP credentials in ~/.claude-mem/.env');
-    console.log('  2. Playwright installed on your Mac via: claude mcp add playwright');
-    console.log('  3. Run this script on your Mac (not in cloud session)');
-    console.log('\nSkipping DLCP for now. Setup instructions are in README.md');
-    results.dlcp = { status: 'not_run', reason: 'Requires manual setup on your Mac' };
+    try {
+      results.dockets = await checkCourtDockets();
+      if (results.dockets.error) throw new Error(results.dockets.error);
+      console.log('\n✓ Docket check completed');
+    } catch (error) {
+      console.error(`✗ Docket check failed: ${error.message}`);
+      results.dockets = { error: error.message };
+    }
   }
 
   console.log('\n' + '━'.repeat(60));
