@@ -28,7 +28,9 @@ jobs:
         shell: pwsh
 
       - run: npm install --no-audit --no-fund
-    - uses: ilammy/msvc-dev-cmd@v1
+        - uses: ilammy/msvc-dev-cmd@v1
+        - run: npm install --no-audit --no-fund
+
 
 
 
