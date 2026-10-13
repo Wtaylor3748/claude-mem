@@ -26,5 +26,6 @@ jobs:
         shell: pwsh
       - uses: ilammy/msvc-dev-cmd@v1
       - run: npm install --no-audit --no-fund
-    - run: npm install --global windows-build-tools --add-python-to-path='false' --vs2015 & exit 0
+        - run: npm run build
+
 
